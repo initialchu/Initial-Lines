@@ -5,6 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 export interface Settings {
   background: string;
   defaultSavePath: string;
+  vaultPath: string;
 }
 
 const props = defineProps<{
@@ -25,9 +26,17 @@ watch(
     if (v) {
       form.background = props.settings.background;
       form.defaultSavePath = props.settings.defaultSavePath;
+      form.vaultPath = props.settings.vaultPath;
     }
   },
 );
+
+async function handleBrowseVault() {
+  const selected = await open({ directory: true, multiple: false });
+  if (selected && typeof selected === 'string') {
+    form.vaultPath = selected;
+  }
+}
 
 async function handleBrowsePath() {
   const selected = await open({ directory: true, multiple: false });
@@ -68,6 +77,18 @@ function handleOverlayClick(e: MouseEvent) {
             class="settings-input"
             placeholder="例如: #f5f5f5 或 linear-gradient(135deg, #667eea, #764ba2)"
           />
+        </label>
+
+        <label class="settings-field">
+          <span class="settings-label">笔记库路径</span>
+          <div class="settings-path-row">
+            <input
+              v-model="form.vaultPath"
+              class="settings-input"
+              placeholder="选择笔记库文件夹..."
+            />
+            <button class="settings-browse-btn" @click="handleBrowseVault">浏览</button>
+          </div>
         </label>
 
         <label class="settings-field">

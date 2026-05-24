@@ -23,7 +23,7 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore corrupt data */ }
-  return { background: '', defaultSavePath: '' };
+  return { background: '', defaultSavePath: '', vaultPath: '' };
 }
 
 function loadNotes(): Note[] {
@@ -36,6 +36,47 @@ function loadNotes(): Note[] {
 
 function saveNotes(notes: Note[]) {
   localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+}
+
+async function loadNotesFromVault(dir: string) {
+  try {
+    const files = await invoke<Array<{ path: string; name: string; updated_at: number }>>('list_notes', { dir });
+    notes.value = files.map((f) => ({
+      id: f.path,
+      title: f.name,
+      content: '',
+      updatedAt: new Date(f.updated_at * 1000).toISOString(),
+      wordCount: 0,
+      path: f.path,
+    }));
+  } catch (e) {
+    console.error('Failed to list notes:', e);
+  }
+}
+
+async function loadNoteContent(note: Note) {
+  if (!note.path) return;
+  try {
+    const content = await invoke<string>('read_note', { path: note.path });
+    note.content = content;
+    currentContent.value = content;
+    const firstLine = content.split('\n')[0].trim();
+    note.title = firstLine.replace(/^#+\s*/, '').slice(0, 50) || note.title;
+    note.wordCount = countWords(content);
+  } catch (e) {
+    console.error('Failed to read note:', e);
+  }
+}
+
+function debouncedSave(path: string, content: string) {
+  if (autoSaveTimer.value) clearTimeout(autoSaveTimer.value);
+  autoSaveTimer.value = setTimeout(async () => {
+    try {
+      await invoke('save_file', { path, content });
+    } catch (e) {
+      console.error('Auto-save failed:', e);
+    }
+  }, 500);
 }
 
 function generateId(): string {
@@ -63,32 +104,67 @@ const currentFilePath = ref<string | null>(null);
 const currentContent = ref('');
 const showPreview = ref(false);
 const splitView = ref(false);
+const autoSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+const vaultPath = computed(() => settings.vaultPath);
 
 const activeNote = computed(() => notes.value.find((n) => n.id === activeNoteId.value));
 
-watch(notes, (v) => saveNotes(v), { deep: true });
+watch(notes, (v) => {
+  if (!vaultPath.value) saveNotes(v);
+}, { deep: true });
 
-function handleNewNote() {
-  const note: Note = {
-    id: generateId(),
-    title: '',
-    content: '',
-    updatedAt: new Date().toISOString(),
-    wordCount: 0,
-  };
-  notes.value.unshift(note);
-  activeNoteId.value = note.id;
+watch(vaultPath, async (v) => {
+  activeNoteId.value = null;
   currentContent.value = '';
   currentFilePath.value = null;
+  if (v) {
+    await loadNotesFromVault(v);
+  } else {
+    notes.value = loadNotes();
+  }
+}, { immediate: true });
+
+async function handleNewNote() {
+  if (vaultPath.value) {
+    const file = await invoke<{ path: string; name: string; updated_at: number }>('create_note', { dir: vaultPath.value });
+    const note: Note = {
+      id: file.path,
+      title: file.name,
+      content: '',
+      updatedAt: new Date(file.updated_at * 1000).toISOString(),
+      wordCount: 0,
+      path: file.path,
+    };
+    notes.value.unshift(note);
+    activeNoteId.value = note.id;
+    currentContent.value = '';
+    currentFilePath.value = null;
+  } else {
+    const note: Note = {
+      id: generateId(),
+      title: '',
+      content: '',
+      updatedAt: new Date().toISOString(),
+      wordCount: 0,
+    };
+    notes.value.unshift(note);
+    activeNoteId.value = note.id;
+    currentContent.value = '';
+    currentFilePath.value = null;
+  }
 }
 
-function handleSelectNote(id: string) {
+async function handleSelectNote(id: string) {
   activeNoteId.value = id;
   const note = notes.value.find((n) => n.id === id);
   if (note) {
-    currentContent.value = note.content;
+    if (note.path) {
+      await loadNoteContent(note);
+    } else {
+      currentContent.value = note.content;
+    }
+    currentFilePath.value = note.path || null;
   }
-  currentFilePath.value = null;
 }
 
 function handleContentUpdate(content: string) {
@@ -98,11 +174,31 @@ function handleContentUpdate(content: string) {
     if (note) {
       note.content = content;
       note.updatedAt = new Date().toISOString();
-      // Extract title from first line
       const firstLine = content.split('\n')[0].trim();
       note.title = firstLine.replace(/^#+\s*/, '').slice(0, 50) || '无标题';
       note.wordCount = countWords(content);
+      if (note.path) {
+        debouncedSave(note.path, content);
+      }
     }
+  }
+}
+
+async function handleDeleteNote(id: string) {
+  const note = notes.value.find((n) => n.id === id);
+  if (!note) return;
+  if (note.path) {
+    try {
+      await invoke('delete_note', { path: note.path });
+    } catch (e) {
+      console.error('Delete failed:', e);
+    }
+  }
+  notes.value = notes.value.filter((n) => n.id !== id);
+  if (activeNoteId.value === id) {
+    activeNoteId.value = null;
+    currentContent.value = '';
+    currentFilePath.value = null;
   }
 }
 
@@ -146,17 +242,27 @@ async function handleFileSaveAs() {
   }
 }
 
-function handleTogglePreview() {
-  showPreview.value = !showPreview.value;
-}
-
-function handleToggleSplit() {
-  splitView.value = !splitView.value;
+function handleSetMode(mode: 'edit' | 'split' | 'preview') {
+  switch (mode) {
+    case 'edit':
+      showPreview.value = false;
+      splitView.value = false;
+      break;
+    case 'split':
+      splitView.value = true;
+      showPreview.value = false;
+      break;
+    case 'preview':
+      showPreview.value = true;
+      splitView.value = false;
+      break;
+  }
 }
 
 function handleSettingsSave(s: Settings) {
   settings.background = s.background;
   settings.defaultSavePath = s.defaultSavePath;
+  settings.vaultPath = s.vaultPath;
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -184,7 +290,10 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => window.addEventListener('keydown', handleKeydown, true));
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown, true));
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown, true);
+  if (autoSaveTimer.value) clearTimeout(autoSaveTimer.value);
+});
 </script>
 
 <template>
@@ -193,8 +302,10 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown, true));
       <Sidebar
         :notes="notes"
         :active-id="activeNoteId"
+        :vault-path="vaultPath"
         @new-note="handleNewNote"
         @select-note="handleSelectNote"
+        @delete-note="handleDeleteNote"
       />
       <div class="main-area">
         <TitleBar
@@ -212,8 +323,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown, true));
           @file-open="handleFileOpen"
           @file-save="handleFileSave"
           @file-save-as="handleFileSaveAs"
-          @toggle-preview="handleTogglePreview"
-          @toggle-split="handleToggleSplit"
+          @set-mode="handleSetMode"
         />
         <EditorArea
           :content="currentContent"

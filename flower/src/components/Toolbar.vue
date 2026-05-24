@@ -4,8 +4,7 @@ defineEmits<{
   'file-open': [];
   'file-save': [];
   'file-save-as': [];
-  'toggle-preview': [];
-  'toggle-split': [];
+  'set-mode': [mode: 'edit' | 'split' | 'preview'];
 }>();
 
 defineProps<{ showPreview: boolean; splitView: boolean }>();
@@ -55,21 +54,21 @@ defineProps<{ showPreview: boolean; splitView: boolean }>();
       <button
         class="toolbar__mode-btn"
         :class="{ 'is-active': !showPreview && !splitView }"
-        @click="$emit('toggle-preview')"
+        @click="$emit('set-mode', 'edit')"
       >
         编辑
       </button>
       <button
         class="toolbar__mode-btn"
         :class="{ 'is-active': splitView }"
-        @click="$emit('toggle-split')"
+        @click="$emit('set-mode', 'split')"
       >
         分栏
       </button>
       <button
         class="toolbar__mode-btn"
         :class="{ 'is-active': showPreview && !splitView }"
-        @click="$emit('toggle-preview')"
+        @click="$emit('set-mode', 'preview')"
       >
         预览
       </button>

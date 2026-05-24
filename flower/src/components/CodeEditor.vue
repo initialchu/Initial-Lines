@@ -86,6 +86,11 @@ watch(loading, (v) => {
   overflow: auto;
 }
 
+.milkdown-host .ProseMirror:focus {
+  outline: none;
+  box-shadow: none;
+}
+
 .milkdown-host [data-milkdown-root] {
   height: 100%;
 }

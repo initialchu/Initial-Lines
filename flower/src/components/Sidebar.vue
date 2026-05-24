@@ -7,11 +7,13 @@ export interface Note {
   content: string;
   updatedAt: string;
   wordCount: number;
+  path?: string;
 }
 
 const props = defineProps<{
   notes: Note[];
   activeId: string | null;
+  vaultPath?: string;
 }>();
 
 defineEmits<{
@@ -75,6 +77,15 @@ function formatDateTime(dateStr: string): string {
     </div>
 
     <div class="sidebar__list">
+      <div v-if="!vaultPath" class="sidebar__empty">
+        <p>请先在设置中选择笔记库路径</p>
+      </div>
+      <div
+        v-else-if="filteredNotes.length === 0"
+        class="sidebar__empty"
+      >
+        <p>暂无笔记</p>
+      </div>
       <div
         v-for="note in filteredNotes"
         :key="note.id"
@@ -82,7 +93,19 @@ function formatDateTime(dateStr: string): string {
         :class="{ 'is-active': note.id === activeId }"
         @click="$emit('select-note', note.id)"
       >
-        <div class="sidebar__item-title">{{ note.title || '无标题' }}</div>
+        <div class="sidebar__item-header">
+          <div class="sidebar__item-title">{{ note.title || '无标题' }}</div>
+          <button
+            class="sidebar__item-delete"
+            title="删除笔记"
+            @click.stop="$emit('delete-note', note.id)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
         <div class="sidebar__item-meta">
           <span class="sidebar__item-preview">{{ note.content.slice(0, 60).replace(/\n/g, ' ') || ' ' }}</span>
         </div>
@@ -207,14 +230,68 @@ function formatDateTime(dateStr: string): string {
   background: var(--sidebar-item-active, #2d3a2d);
 }
 
+.sidebar__item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
 .sidebar__item-title {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-color, #d4d4d4);
-  margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar__item-delete {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted, #666);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.sidebar__item:hover .sidebar__item-delete {
+  opacity: 1;
+}
+
+.sidebar__item-delete:hover {
+  color: #e05555;
+  background: rgba(224, 85, 85, 0.15);
+}
+
+.sidebar__item-delete svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.sidebar__empty p {
+  font-size: 13px;
+  color: var(--text-muted, #666);
+  line-height: 1.6;
 }
 
 .sidebar__item.is-active .sidebar__item-title {
