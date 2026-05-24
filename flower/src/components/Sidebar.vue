@@ -14,12 +14,31 @@ const props = defineProps<{
   notes: Note[];
   activeId: string | null;
   vaultPath?: string;
+  background?: string;
+  backgroundOpacity?: number;
+  backgroundBlur?: number;
+  backgroundSize?: string;
+  backgroundPositionX?: number;
+  backgroundPositionY?: number;
 }>();
 
-defineEmits<{
+const bgStyle = computed(() => {
+  if (!props.background) return undefined;
+  return {
+    '--bg-image': props.background,
+    '--bg-opacity': (props.backgroundOpacity ?? 100) / 100,
+    '--bg-blur': `${props.backgroundBlur ?? 0}px`,
+    '--bg-size': props.backgroundSize ?? 'cover',
+    '--bg-pos-x': `${props.backgroundPositionX ?? 50}%`,
+    '--bg-pos-y': `${props.backgroundPositionY ?? 50}%`,
+  } as Record<string, string | number>;
+});
+
+const emit = defineEmits<{
   'select-note': [id: string];
   'new-note': [];
   'delete-note': [id: string];
+  'import-note': [];
 }>()
 
 const searchQuery = ref('');
@@ -34,6 +53,11 @@ const filteredNotes = computed(() => {
   );
 });
 
+function handleDeleteClick(e: MouseEvent, id: string) {
+  e.stopPropagation();
+  emit('delete-note', id);
+}
+
 function formatDateTime(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleString('zh-CN', {
@@ -46,7 +70,7 @@ function formatDateTime(dateStr: string): string {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ 'has-bg': !!background }" :style="bgStyle">
     <div class="sidebar__header">
       <div class="sidebar__search">
         <svg class="sidebar__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -59,14 +83,14 @@ function formatDateTime(dateStr: string): string {
           placeholder="搜索笔记..."
         />
       </div>
-      <button class="sidebar__new-btn" title="新建笔记" @click="$emit('new-note')">
+      <button class="sidebar__new-btn" title="新建笔记" @click="emit('new-note')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
         <span>新建笔记</span>
       </button>
-      <button class="sidebar__import-btn" title="导入 Markdown">
+      <button class="sidebar__import-btn" title="导入 Markdown" @click="emit('import-note')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="17 8 12 3 7 8" />
@@ -91,14 +115,14 @@ function formatDateTime(dateStr: string): string {
         :key="note.id"
         class="sidebar__item"
         :class="{ 'is-active': note.id === activeId }"
-        @click="$emit('select-note', note.id)"
+        @click="emit('select-note', note.id)"
       >
         <div class="sidebar__item-header">
           <div class="sidebar__item-title">{{ note.title || '无标题' }}</div>
           <button
             class="sidebar__item-delete"
             title="删除笔记"
-            @click.stop="$emit('delete-note', note.id)"
+            @click="handleDeleteClick($event, note.id)"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -130,6 +154,29 @@ function formatDateTime(dateStr: string): string {
   overflow: hidden;
 }
 
+.sidebar.has-bg {
+  position: relative;
+}
+
+.sidebar.has-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg-image);
+  background-size: var(--bg-size, cover);
+  background-position: var(--bg-pos-x, 50%) var(--bg-pos-y, 50%);
+  background-repeat: no-repeat;
+  opacity: var(--bg-opacity, 1);
+  filter: blur(var(--bg-blur, 0px));
+  z-index: 0;
+  pointer-events: none;
+}
+
+.sidebar.has-bg > * {
+  position: relative;
+  z-index: 1;
+}
+
 .sidebar__header {
   padding: 12px;
   display: flex;
@@ -159,7 +206,7 @@ function formatDateTime(dateStr: string): string {
   padding: 0 12px 0 32px;
   border: 1px solid var(--border-color, #2a2a2a);
   border-radius: 6px;
-  background: var(--sidebar-search-bg, #252525);
+  background: var(--sidebar-search-bg, #ffffff);
   color: var(--text-color, #d4d4d4);
   font-size: 13px;
   outline: none;
@@ -192,7 +239,7 @@ function formatDateTime(dateStr: string): string {
 
 .sidebar__new-btn:hover,
 .sidebar__import-btn:hover {
-  background: var(--sidebar-item-hover, #2a2a2a);
+  background: var(--sidebar-item-hover, #f1eeee);
 }
 
 .sidebar__new-btn svg,
@@ -223,11 +270,11 @@ function formatDateTime(dateStr: string): string {
 }
 
 .sidebar__item:hover {
-  background: var(--sidebar-item-hover, #2a2a2a);
+  background: var(--sidebar-item-hover, #ffffffc8);
 }
 
 .sidebar__item.is-active {
-  background: var(--sidebar-item-active, #2d3a2d);
+  background: var(--sidebar-item-active, #ffffffd0);
 }
 
 .sidebar__item-header {

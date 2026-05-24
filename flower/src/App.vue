@@ -9,6 +9,7 @@ import SettingsModal from './components/SettingsModal.vue';
 import Sidebar from './components/Sidebar.vue';
 import type { Settings } from './components/SettingsModal.vue';
 import type { Note } from './components/Sidebar.vue';
+import { open } from '@tauri-apps/plugin-dialog';
 
 interface FileData {
   path: string;
@@ -23,7 +24,7 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore corrupt data */ }
-  return { background: '', defaultSavePath: '', vaultPath: '' };
+  return { background: '', backgroundOpacity: 100, backgroundBlur: 0, backgroundSize: 'cover', backgroundPositionX: 50, backgroundPositionY: 50, sidebarBackground: '', sidebarBackgroundOpacity: 100, sidebarBackgroundBlur: 0, sidebarBackgroundSize: 'cover', sidebarBackgroundPositionX: 50, sidebarBackgroundPositionY: 50, defaultSavePath: '', vaultPath: '' };
 }
 
 function loadNotes(): Note[] {
@@ -106,8 +107,10 @@ const showPreview = ref(false);
 const splitView = ref(false);
 const autoSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 const vaultPath = computed(() => settings.vaultPath);
+const pendingDeleteId = ref<string | null>(null);
 
 const activeNote = computed(() => notes.value.find((n) => n.id === activeNoteId.value));
+const pendingDeleteNote = computed(() => notes.value.find((n) => n.id === pendingDeleteId.value));
 
 watch(notes, (v) => {
   if (!vaultPath.value) saveNotes(v);
@@ -184,10 +187,15 @@ function handleContentUpdate(content: string) {
   }
 }
 
-async function handleDeleteNote(id: string) {
+function handleDeleteNote(id: string) {
+  pendingDeleteId.value = id;
+}
+
+async function confirmDelete() {
+  const id = pendingDeleteId.value;
+  if (!id) return;
   const note = notes.value.find((n) => n.id === id);
-  if (!note) return;
-  if (note.path) {
+  if (note?.path) {
     try {
       await invoke('delete_note', { path: note.path });
     } catch (e) {
@@ -200,6 +208,30 @@ async function handleDeleteNote(id: string) {
     currentContent.value = '';
     currentFilePath.value = null;
   }
+  pendingDeleteId.value = null;
+}
+
+function cancelDelete() {
+  pendingDeleteId.value = null;
+}
+
+async function handleImportNote() {
+  if (!vaultPath.value) return;
+  const selected = await open({
+    multiple: true,
+    filters: [{ name: 'Markdown', extensions: ['md', 'txt', 'markdown'] }],
+  });
+  if (!selected) return;
+  const files = Array.isArray(selected) ? selected : [selected];
+  for (const file of files) {
+    if (typeof file !== 'string') continue;
+    try {
+      await invoke('import_note', { vaultDir: vaultPath.value, sourcePath: file });
+    } catch (e) {
+      console.error('Import failed:', e);
+    }
+  }
+  await loadNotesFromVault(vaultPath.value);
 }
 
 function handleFileNew() {
@@ -261,6 +293,17 @@ function handleSetMode(mode: 'edit' | 'split' | 'preview') {
 
 function handleSettingsSave(s: Settings) {
   settings.background = s.background;
+  settings.backgroundOpacity = s.backgroundOpacity;
+  settings.backgroundBlur = s.backgroundBlur;
+  settings.backgroundSize = s.backgroundSize;
+  settings.backgroundPositionX = s.backgroundPositionX;
+  settings.backgroundPositionY = s.backgroundPositionY;
+  settings.sidebarBackground = s.sidebarBackground;
+  settings.sidebarBackgroundOpacity = s.sidebarBackgroundOpacity;
+  settings.sidebarBackgroundBlur = s.sidebarBackgroundBlur;
+  settings.sidebarBackgroundSize = s.sidebarBackgroundSize;
+  settings.sidebarBackgroundPositionX = s.sidebarBackgroundPositionX;
+  settings.sidebarBackgroundPositionY = s.sidebarBackgroundPositionY;
   settings.defaultSavePath = s.defaultSavePath;
   settings.vaultPath = s.vaultPath;
 }
@@ -303,9 +346,16 @@ onUnmounted(() => {
         :notes="notes"
         :active-id="activeNoteId"
         :vault-path="vaultPath"
+        :background="settings.sidebarBackground"
+        :background-opacity="settings.sidebarBackgroundOpacity"
+        :background-blur="settings.sidebarBackgroundBlur"
+        :background-size="settings.sidebarBackgroundSize"
+        :background-position-x="settings.sidebarBackgroundPositionX"
+        :background-position-y="settings.sidebarBackgroundPositionY"
         @new-note="handleNewNote"
         @select-note="handleSelectNote"
         @delete-note="handleDeleteNote"
+        @import-note="handleImportNote"
       />
       <div class="main-area">
         <TitleBar
@@ -330,6 +380,11 @@ onUnmounted(() => {
           :show-preview="showPreview"
           :split-view="splitView"
           :background="settings.background"
+          :background-opacity="settings.backgroundOpacity"
+          :background-blur="settings.backgroundBlur"
+          :background-size="settings.backgroundSize"
+          :background-position-x="settings.backgroundPositionX"
+          :background-position-y="settings.backgroundPositionY"
           @update:content="handleContentUpdate"
         />
       </div>
@@ -339,6 +394,17 @@ onUnmounted(() => {
       :settings="settings"
       @save="handleSettingsSave"
     />
+
+    <div v-if="pendingDeleteId" class="confirm-overlay" @click.self="cancelDelete">
+      <div class="confirm-card">
+        <p class="confirm-text">确定要删除「{{ pendingDeleteNote?.title || '无标题' }}」吗？</p>
+        <p class="confirm-hint">此操作不可撤销，文件将被永久删除。</p>
+        <div class="confirm-actions">
+          <button class="confirm-btn confirm-btn--cancel" @click="cancelDelete">取消</button>
+          <button class="confirm-btn confirm-btn--danger" @click="confirmDelete">删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -356,5 +422,68 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay-bg, rgba(0, 0, 0, 0.4));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.confirm-card {
+  width: 360px;
+  background: var(--bg-color, #1e1e1e);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.confirm-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-color, #d4d4d4);
+  margin-bottom: 8px;
+}
+
+.confirm-hint {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  margin-bottom: 20px;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-btn {
+  padding: 6px 20px;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color, #d4d4d4);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.confirm-btn:hover {
+  background: var(--btn-hover, #3c3c3c);
+}
+
+.confirm-btn--danger {
+  background: #d94a4a;
+  border-color: #d94a4a;
+  color: #fff;
+}
+
+.confirm-btn--danger:hover {
+  background: #c23a3a;
 }
 </style>

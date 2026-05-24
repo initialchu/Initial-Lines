@@ -1,9 +1,21 @@
 <script setup lang="ts">
 import { reactive, watch } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface Settings {
   background: string;
+  backgroundOpacity: number;
+  backgroundBlur: number;
+  backgroundSize: string;
+  backgroundPositionX: number;
+  backgroundPositionY: number;
+  sidebarBackground: string;
+  sidebarBackgroundOpacity: number;
+  sidebarBackgroundBlur: number;
+  sidebarBackgroundSize: string;
+  sidebarBackgroundPositionX: number;
+  sidebarBackgroundPositionY: number;
   defaultSavePath: string;
   vaultPath: string;
 }
@@ -25,6 +37,17 @@ watch(
   (v) => {
     if (v) {
       form.background = props.settings.background;
+      form.backgroundOpacity = props.settings.backgroundOpacity;
+      form.backgroundBlur = props.settings.backgroundBlur;
+      form.backgroundSize = props.settings.backgroundSize;
+      form.backgroundPositionX = props.settings.backgroundPositionX;
+      form.backgroundPositionY = props.settings.backgroundPositionY;
+      form.sidebarBackground = props.settings.sidebarBackground;
+      form.sidebarBackgroundOpacity = props.settings.sidebarBackgroundOpacity;
+      form.sidebarBackgroundBlur = props.settings.sidebarBackgroundBlur;
+      form.sidebarBackgroundSize = props.settings.sidebarBackgroundSize;
+      form.sidebarBackgroundPositionX = props.settings.sidebarBackgroundPositionX;
+      form.sidebarBackgroundPositionY = props.settings.sidebarBackgroundPositionY;
       form.defaultSavePath = props.settings.defaultSavePath;
       form.vaultPath = props.settings.vaultPath;
     }
@@ -42,6 +65,28 @@ async function handleBrowsePath() {
   const selected = await open({ directory: true, multiple: false });
   if (selected && typeof selected === 'string') {
     form.defaultSavePath = selected;
+  }
+}
+
+async function handlePickSidebarImage() {
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] }],
+  });
+  if (selected && typeof selected === 'string') {
+    const dataUrl = await invoke<string>('read_image_base64', { path: selected });
+    form.sidebarBackground = `url(${dataUrl}) center/cover no-repeat`;
+  }
+}
+
+async function handlePickEditorImage() {
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] }],
+  });
+  if (selected && typeof selected === 'string') {
+    const dataUrl = await invoke<string>('read_image_base64', { path: selected });
+    form.background = `url(${dataUrl}) center/cover no-repeat`;
   }
 }
 
@@ -71,12 +116,117 @@ function handleOverlayClick(e: MouseEvent) {
 
       <div class="settings-body">
         <label class="settings-field">
-          <span class="settings-label">自定义背景</span>
-          <input
-            v-model="form.background"
-            class="settings-input"
-            placeholder="例如: #f5f5f5 或 linear-gradient(135deg, #667eea, #764ba2)"
-          />
+          <span class="settings-label">编辑区背景</span>
+          <div class="settings-bg-row">
+            <input
+              v-model="form.background"
+              class="settings-input"
+              placeholder="CSS 颜色、渐变或图片 URL..."
+            />
+            <input
+              type="color"
+              class="settings-color-picker"
+              title="选择颜色"
+              @input="form.background = ($event.target as HTMLInputElement).value"
+            />
+            <button class="settings-browse-btn" title="选择图片" @click="handlePickEditorImage">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </button>
+          </div>
+          <div class="settings-bg-ctrls">
+            <label class="settings-ctrl">
+              <span>透明度</span>
+              <input type="range" min="0" max="100" v-model.number="form.backgroundOpacity" />
+              <span class="settings-ctrl-val">{{ form.backgroundOpacity }}%</span>
+            </label>
+            <label class="settings-ctrl">
+              <span>模糊</span>
+              <input type="range" min="0" max="50" v-model.number="form.backgroundBlur" />
+              <span class="settings-ctrl-val">{{ form.backgroundBlur }}px</span>
+            </label>
+            <label class="settings-ctrl">
+              <span>尺寸</span>
+              <select v-model="form.backgroundSize" class="settings-select">
+                <option value="cover">Cover</option>
+                <option value="contain">Contain</option>
+                <option value="auto">Auto</option>
+                <option value="100% auto">100%</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-bg-ctrls">
+            <label class="settings-ctrl">
+              <span>水平</span>
+              <input type="range" min="0" max="100" v-model.number="form.backgroundPositionX" />
+              <span class="settings-ctrl-val">{{ form.backgroundPositionX }}%</span>
+            </label>
+            <label class="settings-ctrl">
+              <span>垂直</span>
+              <input type="range" min="0" max="100" v-model.number="form.backgroundPositionY" />
+              <span class="settings-ctrl-val">{{ form.backgroundPositionY }}%</span>
+            </label>
+          </div>
+        </label>
+
+        <label class="settings-field">
+          <span class="settings-label">侧边栏背景</span>
+          <div class="settings-bg-row">
+            <input
+              v-model="form.sidebarBackground"
+              class="settings-input"
+              placeholder="CSS 颜色、渐变或图片 URL..."
+            />
+            <input
+              type="color"
+              class="settings-color-picker"
+              title="选择颜色"
+              @input="form.sidebarBackground = ($event.target as HTMLInputElement).value"
+            />
+            <button class="settings-browse-btn" title="选择图片" @click="handlePickSidebarImage">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </button>
+          </div>
+          <div class="settings-bg-ctrls">
+            <label class="settings-ctrl">
+              <span>透明度</span>
+              <input type="range" min="0" max="100" v-model.number="form.sidebarBackgroundOpacity" />
+              <span class="settings-ctrl-val">{{ form.sidebarBackgroundOpacity }}%</span>
+            </label>
+            <label class="settings-ctrl">
+              <span>模糊</span>
+              <input type="range" min="0" max="50" v-model.number="form.sidebarBackgroundBlur" />
+              <span class="settings-ctrl-val">{{ form.sidebarBackgroundBlur }}px</span>
+            </label>
+            <label class="settings-ctrl">
+              <span>尺寸</span>
+              <select v-model="form.sidebarBackgroundSize" class="settings-select">
+                <option value="cover">Cover</option>
+                <option value="contain">Contain</option>
+                <option value="auto">Auto</option>
+                <option value="100% auto">100%</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-bg-ctrls">
+            <label class="settings-ctrl">
+              <span>水平</span>
+              <input type="range" min="0" max="100" v-model.number="form.sidebarBackgroundPositionX" />
+              <span class="settings-ctrl-val">{{ form.sidebarBackgroundPositionX }}%</span>
+            </label>
+            <label class="settings-ctrl">
+              <span>垂直</span>
+              <input type="range" min="0" max="100" v-model.number="form.sidebarBackgroundPositionY" />
+              <span class="settings-ctrl-val">{{ form.sidebarBackgroundPositionY }}%</span>
+            </label>
+          </div>
         </label>
 
         <label class="settings-field">
@@ -248,5 +398,78 @@ function handleOverlayClick(e: MouseEvent) {
 
 .settings-save-btn:hover {
   opacity: 0.9;
+}
+
+.settings-bg-row {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-bg-row .settings-input {
+  flex: 1;
+}
+
+.settings-color-picker {
+  width: 36px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.settings-color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.settings-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.settings-bg-ctrls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.settings-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  cursor: default;
+}
+
+.settings-ctrl input[type="range"] {
+  width: 80px;
+  height: 4px;
+  accent-color: var(--accent-color, #4a90d9);
+  cursor: pointer;
+}
+
+.settings-ctrl-val {
+  min-width: 32px;
+  text-align: right;
+  color: var(--text-color, #d4d4d4);
+  font-size: 11px;
+}
+
+.settings-select {
+  padding: 2px 6px;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 4px;
+  background: var(--bg-color, #1e1e1e);
+  color: var(--text-color, #d4d4d4);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  border-color: var(--accent-color, #4a90d9);
 }
 </style>

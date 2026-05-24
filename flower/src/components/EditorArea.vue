@@ -1,18 +1,40 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import CodeEditor from './CodeEditor.vue';
 
-defineProps<{ content: string; showPreview: boolean; splitView: boolean; background?: string }>();
+const props = defineProps<{
+  content: string;
+  showPreview: boolean;
+  splitView: boolean;
+  background?: string;
+  backgroundOpacity?: number;
+  backgroundBlur?: number;
+  backgroundSize?: string;
+  backgroundPositionX?: number;
+  backgroundPositionY?: number;
+}>();
 defineEmits<{ 'update:content': [value: string] }>();
 
 const previewHtml = ref('');
+
+const bgStyle = computed(() => {
+  if (!props.background) return undefined;
+  return {
+    '--bg-image': props.background,
+    '--bg-opacity': (props.backgroundOpacity ?? 100) / 100,
+    '--bg-blur': `${props.backgroundBlur ?? 0}px`,
+    '--bg-size': props.backgroundSize ?? 'cover',
+    '--bg-pos-x': `${props.backgroundPositionX ?? 50}%`,
+    '--bg-pos-y': `${props.backgroundPositionY ?? 50}%`,
+  } as Record<string, string | number>;
+});
 </script>
 
 <template>
   <div
     class="editor-area"
-    :class="{ 'is-split': splitView }"
-    :style="background ? { background } : undefined"
+    :class="{ 'is-split': splitView, 'has-bg': !!background }"
+    :style="bgStyle"
   >
     <template v-if="splitView">
       <div class="editor-pane">
@@ -40,6 +62,29 @@ const previewHtml = ref('');
 .editor-area {
   flex: 1;
   overflow: hidden;
+}
+
+.editor-area.has-bg {
+  position: relative;
+}
+
+.editor-area.has-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg-image);
+  background-size: var(--bg-size, cover);
+  background-position: var(--bg-pos-x, 50%) var(--bg-pos-y, 50%);
+  background-repeat: no-repeat;
+  opacity: var(--bg-opacity, 1);
+  filter: blur(var(--bg-blur, 0px));
+  z-index: 0;
+  pointer-events: none;
+}
+
+.editor-area.has-bg > * {
+  position: relative;
+  z-index: 1;
 }
 
 .editor-area.is-split {

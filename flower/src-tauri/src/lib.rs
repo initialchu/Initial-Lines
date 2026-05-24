@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
+use base64::Engine;
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(serde::Serialize)]
@@ -121,6 +122,61 @@ fn delete_note(path: String) -> Result<(), String> {
     fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn import_note(vault_dir: String, source_path: String) -> Result<NoteFile, String> {
+    let src = PathBuf::from(&source_path);
+    let stem = src.file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("imported");
+    let mut dest = PathBuf::from(&vault_dir).join(format!("{}.md", stem));
+
+    if dest.exists() {
+        let mut counter = 1;
+        loop {
+            dest = PathBuf::from(&vault_dir).join(format!("{} ({}).md", stem, counter));
+            if !dest.exists() {
+                break;
+            }
+            counter += 1;
+        }
+    }
+
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    let updated_at = dest.metadata()
+        .map_err(|e| e.to_string())?
+        .modified()
+        .map_err(|e| e.to_string())?
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    Ok(NoteFile {
+        path: dest.to_string_lossy().into(),
+        name: dest.file_stem().and_then(|n| n.to_str()).unwrap_or("imported").to_string(),
+        updated_at,
+    })
+}
+
+#[tauri::command]
+fn read_image_base64(path: String) -> Result<String, String> {
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png");
+    let mime = match ext {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => "image/png",
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{};base64,{}", mime, b64))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -133,7 +189,9 @@ pub fn run() {
             list_notes,
             create_note,
             read_note,
-            delete_note
+            delete_note,
+            read_image_base64,
+            import_note
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
