@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import SidebarNoteTree, { type VaultEntry } from './SidebarNoteTree.vue';
 
 export interface Note {
   id: string;
@@ -14,6 +15,7 @@ const props = defineProps<{
   notes: Note[];
   activeId: string | null;
   vaultPath?: string;
+  vaultTree?: VaultEntry[] | null;
   background?: string;
   backgroundOpacity?: number;
   backgroundBlur?: number;
@@ -37,21 +39,144 @@ const bgStyle = computed(() => {
 const emit = defineEmits<{
   'select-note': [id: string];
   'new-note': [];
+  'new-folder': [];
+  'new-note-in-dir': [dirPath: string];
+  'new-folder-in-dir': [dirPath: string];
   'delete-note': [id: string];
+  'delete-folder': [path: string];
   'import-note': [];
+  'rename-note': [id: string, newName: string];
+  'rename-folder': [path: string, newName: string];
 }>()
 
 const searchQuery = ref('');
 
+// Context menu state
+interface CtxEntry { x: number; y: number; entry: VaultEntry }
+const contextMenu = ref<CtxEntry | null>(null);
+const renamePopup = ref<{ x: number; y: number; entry: VaultEntry } | null>(null);
+const renameValue = ref('');
+
+// Flatten tree for search
+function flattenTree(entries: VaultEntry[]): VaultEntry[] {
+  const result: VaultEntry[] = [];
+  for (const entry of entries) {
+    if (entry.entry_type === 'file') {
+      result.push(entry);
+    }
+    if (entry.children.length > 0) {
+      result.push(...flattenTree(entry.children));
+    }
+  }
+  return result;
+}
+
+const hasSearch = computed(() => searchQuery.value.trim().length > 0);
+
+const flatFileNodes = computed(() => {
+  if (!props.vaultTree) return [];
+  return flattenTree(props.vaultTree);
+});
+
 const filteredNotes = computed(() => {
-  if (!searchQuery.value.trim()) return props.notes;
   const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return [];
   return props.notes.filter(
     (n: Note) =>
       n.title.toLowerCase().includes(q) ||
       n.content.toLowerCase().includes(q),
   );
 });
+
+const filteredTreeFiles = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return [];
+  return flatFileNodes.value.filter(
+    (e: VaultEntry) =>
+      e.name.toLowerCase().includes(q) &&
+      !props.notes.some(n => n.id === e.path)
+  );
+});
+
+// --- Context menu handlers ---
+
+function handleContextEntry(e: MouseEvent, entry: VaultEntry) {
+  contextMenu.value = { x: e.clientX, y: e.clientY, entry };
+}
+
+function closeContextMenu() {
+  contextMenu.value = null;
+}
+
+function handleCtxRename() {
+  if (!contextMenu.value) return;
+  const { x, y, entry } = contextMenu.value;
+  renamePopup.value = { x, y, entry };
+  renameValue.value = entry.name;
+  contextMenu.value = null;
+}
+
+function confirmRenamePopup() {
+  if (!renamePopup.value) return;
+  const trimmed = renameValue.value.trim();
+  if (trimmed && trimmed !== renamePopup.value.entry.name) {
+    if (renamePopup.value.entry.entry_type === 'file') {
+      emit('rename-note', renamePopup.value.entry.path, trimmed);
+    } else {
+      emit('rename-folder', renamePopup.value.entry.path, trimmed);
+    }
+  }
+  renamePopup.value = null;
+}
+
+function cancelRenamePopup() {
+  renamePopup.value = null;
+}
+
+function handleRenamePopupKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    confirmRenamePopup();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    cancelRenamePopup();
+  }
+}
+
+function handleCtxDelete() {
+  if (!contextMenu.value) return;
+  const entry = contextMenu.value.entry;
+  if (entry.entry_type === 'file') {
+    emit('delete-note', entry.path);
+  } else {
+    emit('delete-folder', entry.path);
+  }
+  contextMenu.value = null;
+}
+
+function handleCtxNewNoteInDir() {
+  if (!contextMenu.value) return;
+  emit('new-note-in-dir', contextMenu.value.entry.path);
+  contextMenu.value = null;
+}
+
+function handleCtxNewFolderInDir() {
+  if (!contextMenu.value) return;
+  emit('new-folder-in-dir', contextMenu.value.entry.path);
+  contextMenu.value = null;
+}
+
+// --- Tree note click — load content from disk ---
+
+function handleSelectNote(path: string) {
+  emit('select-note', path);
+}
+
+// --- Delete click from tree file ---
+
+function handleTreeDeleteNote(path: string) {
+  emit('delete-note', path);
+}
 
 function handleDeleteClick(e: MouseEvent, id: string) {
   e.stopPropagation();
@@ -67,10 +192,22 @@ function formatDateTime(dateStr: string): string {
     minute: '2-digit',
   });
 }
+
+function onGlobalClick() {
+  closeContextMenu();
+}
+
+onMounted(() => {
+  document.addEventListener('click', onGlobalClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', onGlobalClick);
+});
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ 'has-bg': !!background }" :style="bgStyle">
+  <aside class="sidebar" :class="{ 'has-bg': !!background }" :style="bgStyle" @contextmenu.prevent>
     <div class="sidebar__header">
       <div class="sidebar__search">
         <svg class="sidebar__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -90,6 +227,14 @@ function formatDateTime(dateStr: string): string {
         </svg>
         <span>新建笔记</span>
       </button>
+      <button class="sidebar__new-btn" title="新建文件夹" @click="emit('new-folder')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          <line x1="12" y1="11" x2="12" y2="17" />
+          <line x1="9" y1="14" x2="15" y2="14" />
+        </svg>
+        <span>新建文件夹</span>
+      </button>
       <button class="sidebar__import-btn" title="导入 Markdown" @click="emit('import-note')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -101,44 +246,121 @@ function formatDateTime(dateStr: string): string {
     </div>
 
     <div class="sidebar__list">
+      <!-- No vault -->
       <div v-if="!vaultPath" class="sidebar__empty">
         <p>请先在设置中选择笔记库路径</p>
       </div>
-      <div
-        v-else-if="filteredNotes.length === 0"
-        class="sidebar__empty"
-      >
-        <p>暂无笔记</p>
-      </div>
-      <div
-        v-for="note in filteredNotes"
-        :key="note.id"
-        class="sidebar__item"
-        :class="{ 'is-active': note.id === activeId }"
-        @click="emit('select-note', note.id)"
-      >
-        <div class="sidebar__item-header">
-          <div class="sidebar__item-title">{{ note.title || '无标题' }}</div>
-          <button
-            class="sidebar__item-delete"
-            title="删除笔记"
-            @click="handleDeleteClick($event, note.id)"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+
+      <!-- Vault + No search: tree view -->
+      <template v-else-if="!hasSearch">
+        <div v-if="vaultTree && vaultTree.length === 0" class="sidebar__empty">
+          <p>暂无笔记</p>
         </div>
-        <div class="sidebar__item-meta">
-          <span class="sidebar__item-preview">{{ note.content.slice(0, 60).replace(/\n/g, ' ') || ' ' }}</span>
+        <SidebarNoteTree
+          v-else-if="vaultTree"
+          :entries="vaultTree"
+          :active-id="activeId"
+          @select-note="handleSelectNote"
+          @delete-note="handleTreeDeleteNote"
+          @rename-note="(path, name) => emit('rename-note', path, name)"
+          @context-entry="handleContextEntry"
+        />
+      </template>
+
+      <!-- Search: flat list -->
+      <template v-else>
+        <div v-if="filteredNotes.length === 0 && filteredTreeFiles.length === 0" class="sidebar__empty">
+          <p>没有匹配的笔记</p>
         </div>
-        <div class="sidebar__item-footer">
-          <span class="sidebar__item-date">{{ formatDateTime(note.updatedAt) }}</span>
-          <span class="sidebar__item-count">{{ note.wordCount }} 字</span>
+        <!-- Flat notes with content -->
+        <div
+          v-for="note in filteredNotes"
+          :key="note.id"
+          class="sidebar__item"
+          :class="{ 'is-active': note.id === activeId }"
+          @click="emit('select-note', note.id)"
+          @contextmenu="handleContextEntry($event, { name: note.title, path: note.id, entry_type: 'file', children: [], updated_at: 0 })"
+        >
+          <div class="sidebar__item-header">
+            <div class="sidebar__item-title">{{ note.title || '无标题' }}</div>
+            <button
+              class="sidebar__item-delete"
+              title="删除笔记"
+              @click="handleDeleteClick($event, note.id)"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="sidebar__item-meta">
+            <span class="sidebar__item-preview">{{ note.content.slice(0, 60).replace(/\n/g, ' ') || ' ' }}</span>
+          </div>
+          <div class="sidebar__item-footer">
+            <span class="sidebar__item-date">{{ formatDateTime(note.updatedAt) }}</span>
+            <span class="sidebar__item-count">{{ note.wordCount }} 字</span>
+          </div>
         </div>
-      </div>
+        <!-- Tree-only files in search (no content loaded) -->
+        <div
+          v-for="entry in filteredTreeFiles"
+          :key="entry.path"
+          class="sidebar__item"
+          :class="{ 'is-active': entry.path === activeId }"
+          @click="emit('select-note', entry.path)"
+          @contextmenu="handleContextEntry($event, entry)"
+        >
+          <div class="sidebar__item-header">
+            <div class="sidebar__item-title">{{ entry.name || '无标题' }}</div>
+          </div>
+          <div class="sidebar__item-footer">
+            <span class="sidebar__item-date" v-if="entry.updated_at">{{ formatDateTime(new Date(entry.updated_at * 1000).toISOString()) }}</span>
+          </div>
+        </div>
+      </template>
     </div>
+
+    <!-- Context menu (teleported to body) -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenu"
+        class="sidebar__context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+      >
+        <template v-if="contextMenu.entry.entry_type === 'file'">
+          <button class="sidebar__context-item" @click="handleCtxRename">重命名</button>
+          <button class="sidebar__context-item sidebar__context-item--danger" @click="handleCtxDelete">删除</button>
+        </template>
+        <template v-else>
+          <button class="sidebar__context-item" @click="handleCtxNewNoteInDir">在此新建笔记</button>
+          <button class="sidebar__context-item" @click="handleCtxNewFolderInDir">新建文件夹</button>
+          <button class="sidebar__context-item" @click="handleCtxRename">重命名</button>
+          <button class="sidebar__context-item sidebar__context-item--danger" @click="handleCtxDelete">删除文件夹</button>
+        </template>
+      </div>
+    </Teleport>
+
+    <!-- Rename popup (teleported to body) -->
+    <Teleport to="body">
+      <div
+        v-if="renamePopup"
+        class="sidebar__rename-popup"
+        :style="{ left: renamePopup.x + 'px', top: renamePopup.y + 'px' }"
+        @click.stop
+      >
+        <input
+          v-model="renameValue"
+          class="sidebar__rename-popup-input"
+          @keydown="handleRenamePopupKeydown"
+        />
+        <div class="sidebar__rename-popup-actions">
+          <button class="sidebar__rename-popup-btn" @click="confirmRenamePopup">确定</button>
+          <button class="sidebar__rename-popup-btn sidebar__rename-popup-btn--cancel" @click="cancelRenamePopup">取消</button>
+        </div>
+      </div>
+    </Teleport>
   </aside>
 </template>
 
@@ -206,7 +428,7 @@ function formatDateTime(dateStr: string): string {
   padding: 0 12px 0 32px;
   border: 1px solid var(--border-color, #2a2a2a);
   border-radius: 6px;
-  background: var(--sidebar-search-bg, #ffffff);
+  background: var(--sidebar-search-bg, #282828);
   color: var(--text-color, #d4d4d4);
   font-size: 13px;
   outline: none;
@@ -239,7 +461,7 @@ function formatDateTime(dateStr: string): string {
 
 .sidebar__new-btn:hover,
 .sidebar__import-btn:hover {
-  background: var(--sidebar-item-hover, #f1eeee);
+  background: var(--sidebar-item-hover, rgba(255,255,255,0.05));
 }
 
 .sidebar__new-btn svg,
@@ -270,11 +492,11 @@ function formatDateTime(dateStr: string): string {
 }
 
 .sidebar__item:hover {
-  background: var(--sidebar-item-hover, #ffffffc8);
+  background: var(--sidebar-item-hover, rgba(255,255,255,0.05));
 }
 
 .sidebar__item.is-active {
-  background: var(--sidebar-item-active, #ffffffd0);
+  background: var(--sidebar-item-active, rgba(255,255,255,0.08));
 }
 
 .sidebar__item-header {
@@ -366,4 +588,5 @@ function formatDateTime(dateStr: string): string {
 .sidebar__item-count {
   margin-left: auto;
 }
+
 </style>

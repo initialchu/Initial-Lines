@@ -42,12 +42,6 @@ defineProps<{ showPreview: boolean; splitView: boolean }>();
           <line x1="14" y1="5" x2="20" y2="5" />
         </svg>
       </button>
-      <button class="toolbar__icon-btn" title="Delete" @click="$emit('file-new')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6" />
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-        </svg>
-      </button>
     </div>
     <div class="toolbar__spacer"></div>
     <div class="toolbar__right">
