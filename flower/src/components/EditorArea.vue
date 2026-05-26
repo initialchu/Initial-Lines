@@ -13,7 +13,10 @@ const props = defineProps<{
   backgroundPositionX?: number;
   backgroundPositionY?: number;
 }>();
-defineEmits<{ 'update:content': [value: string] }>();
+defineEmits<{
+  'update:content': [value: string];
+  'title-required': [];
+}>();
 
 const previewHtml = ref('');
 
@@ -43,6 +46,7 @@ const bgStyle = computed(() => {
           :show-preview="false"
           @update:content="$emit('update:content', $event)"
           @preview-html="previewHtml = $event"
+          @title-required="$emit('title-required')"
         />
       </div>
       <div class="editor-divider"></div>
@@ -53,6 +57,7 @@ const bgStyle = computed(() => {
         :content="content"
         :show-preview="showPreview"
         @update:content="$emit('update:content', $event)"
+        @title-required="$emit('title-required')"
       />
     </template>
   </div>

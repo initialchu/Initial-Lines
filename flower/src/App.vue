@@ -136,6 +136,16 @@ const splitView = ref(false);
 const autoSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 const vaultPath = computed(() => settings.vaultPath);
 const pendingDeleteId = ref<string | null>(null);
+const titleToast = ref(false);
+let titleToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showTitleToast() {
+  titleToast.value = true;
+  if (titleToastTimer) clearTimeout(titleToastTimer);
+  titleToastTimer = setTimeout(() => {
+    titleToast.value = false;
+  }, 2000);
+}
 
 const activeNote = computed(() => notes.value.find((n) => n.id === activeNoteId.value));
 const pendingDeleteNote = computed(() => notes.value.find((n) => n.id === pendingDeleteId.value));
@@ -163,27 +173,27 @@ async function handleNewNote(subdir?: string) {
     const note: Note = {
       id: file.path,
       title: file.name,
-      content: '',
+      content: '# ',
       updatedAt: new Date(file.updated_at * 1000).toISOString(),
       wordCount: 0,
       path: file.path,
     };
     notes.value.unshift(note);
     activeNoteId.value = note.id;
-    currentContent.value = '';
+    currentContent.value = '# ';
     currentFilePath.value = null;
     await loadVaultTree(vaultPath.value);
   } else {
     const note: Note = {
       id: generateId(),
       title: '',
-      content: '',
+      content: '# ',
       updatedAt: new Date().toISOString(),
       wordCount: 0,
     };
     notes.value.unshift(note);
     activeNoteId.value = note.id;
-    currentContent.value = '';
+    currentContent.value = '# ';
     currentFilePath.value = null;
   }
 }
@@ -368,7 +378,7 @@ async function handleImportNote(subdir?: string) {
 
 function handleFileNew() {
   currentFilePath.value = null;
-  currentContent.value = '';
+  currentContent.value = '# ';
 }
 
 async function handleFileOpen() {
@@ -468,6 +478,7 @@ onMounted(() => window.addEventListener('keydown', handleKeydown, true));
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown, true);
   if (autoSaveTimer.value) clearTimeout(autoSaveTimer.value);
+  if (titleToastTimer) clearTimeout(titleToastTimer);
 });
 </script>
 
@@ -525,6 +536,7 @@ onUnmounted(() => {
           :background-position-x="settings.backgroundPositionX"
           :background-position-y="settings.backgroundPositionY"
           @update:content="handleContentUpdate"
+          @title-required="showTitleToast"
         />
       </div>
     </MilkdownProvider>
@@ -544,6 +556,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <div v-if="titleToast" class="title-toast">必须有标题</div>
   </div>
 </template>
 
@@ -624,5 +637,26 @@ onUnmounted(() => {
 
 .confirm-btn--danger:hover {
   background: #c23a3a;
+}
+
+.title-toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 12px 28px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 2000;
+  pointer-events: none;
+  animation: toast-in 0.2s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -50%) translateY(8px); }
+  to { opacity: 1; transform: translate(-50%, -50%) translateY(0); }
 }
 </style>

@@ -8,18 +8,68 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { nord } from '@milkdown/theme-nord';
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils';
 import { Milkdown, useEditor } from '@milkdown/vue';
+import { Plugin } from 'prosemirror-state';
+import { $prose } from '@milkdown/utils';
 
 const props = defineProps<{ content: string; showPreview: boolean }>();
-const emit = defineEmits<{ 'update:content': [value: string]; 'preview-html': [html: string] }>();
+const emit = defineEmits<{
+  'update:content': [value: string];
+  'preview-html': [html: string];
+  'title-required': [];
+}>();
 
 const nordTheme = nord as any;
 
+let onTitleRequired = () => {};
+
+const firstLineHeading = $prose(() =>
+  new Plugin({
+    props: {
+      handleKeyDown(view, event) {
+        if (event.key === 'Enter') {
+          const firstNode = view.state.doc.firstChild;
+          if (!firstNode || firstNode.type.name !== 'heading') return false;
+          const { $from } = view.state.selection;
+          if ($from.pos > firstNode.nodeSize) return false;
+          if (firstNode.textContent.trim() === '') {
+            event.preventDefault();
+            onTitleRequired();
+            return true;
+          }
+        }
+        return false;
+      },
+    },
+    appendTransaction(_transactions, _oldState, newState) {
+      const { doc, schema } = newState;
+      const headingType = schema.nodes.heading;
+      if (!headingType) return null;
+
+      if (doc.childCount === 0) {
+        const heading = headingType.create({ level: 1 });
+        return newState.tr.insert(0, heading);
+      }
+
+      const firstNode = doc.firstChild;
+      if (!firstNode) return null;
+
+      if (firstNode.type.name !== 'heading' || firstNode.attrs.level !== 1) {
+        return newState.tr.setNodeMarkup(0, headingType, { level: 1 });
+      }
+
+      return null;
+    },
+  }),
+);
+
 const { loading, get } = useEditor((container) => {
+  onTitleRequired = () => emit('title-required');
   const maker = Editor.make()
     .use(commonmark)
     .use(gfm)
     .use(history)
     .use(listener)
+    .use(firstLineHeading)
     .use(nordTheme);
 
   maker.config((ctx: any) => {
